@@ -2,7 +2,7 @@ _target_: agents.ddpm_agent.DDPM_Agent
 _recursive_: false
 
 defaults:
-  - model: ddpm/ddpm_dec_transformer
+  - model: ddpm/ddpm_dec_xlstm
   - obs_encoders: resnet
   - language_encoders: clip
 

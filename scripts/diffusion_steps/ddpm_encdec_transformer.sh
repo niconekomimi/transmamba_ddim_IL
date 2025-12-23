@@ -1,0 +1,11 @@
+python run.py  --config-name=libero_config \
+            --multirun agents=ddpm_agent \
+            agent_name=ddpm_encdec_transformer \
+            group=ddpm_encoder_decoder_benchmark \
+            agents/model=ddpm/ddpm_encdec_transformer \
+            agents/obs_encoders=pretrained_resnet_film \
+            agents.if_film_condition=True \
+            task_suite=libero_object,libero_goal,libero_10,libero_spatial \
+            max_len_data=700 \
+            traj_per_task=10,50 \
+            seed=0

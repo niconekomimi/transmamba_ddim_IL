@@ -197,6 +197,31 @@ class EncDec(nn.Module):
             raise ValueError(f"Invalid forward type: {self.forward_type}")
 
 
+class SinusoidalTimeEmbedding(nn.Module):
+    """Standard sinusoidal timestep embedding for ddpm/ddim."""
+    def __init__(self, embed_dim: int, max_period: int = 10000):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.max_period = max_period
+
+    def forward(self, t: torch.Tensor):
+        # 支持 t 形状：(B,), (B,1) 或 (B,1,1)
+        if t.dim() == 1:
+            t = t.view(-1, 1, 1)
+        elif t.dim() == 2:
+            t = t.unsqueeze(1)
+        device = t.device
+        half = self.embed_dim // 2
+        freqs = torch.exp(-math.log(self.max_period) * torch.arange(0, half, device=device).float() / half)
+        t_scalar = t[..., :1]  # 只取一个通道作为时间标量
+        args = t_scalar * freqs.view(1, 1, -1)
+        emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+        if emb.size(-1) < self.embed_dim:
+            pad = torch.zeros(emb.size(0), emb.size(1), self.embed_dim - emb.size(-1), device=device)
+            emb = torch.cat([emb, pad], dim=-1)
+        return emb
+
+
 # Diffusion based decoder-only model, we need time embedding and noisy antions inputs here
 class Noise_EncDec(nn.Module):
     def __init__(
@@ -215,7 +240,7 @@ class Noise_EncDec(nn.Module):
             action_seq_len: int,
             linear_output: bool = False,
             use_ada_conditioning: bool = False,
-            diffusion_type: str = "beso",  # ddpm, beso or rf
+            diffusion_type: str = "beso",  # 支持: ddpm, ddim, beso, rf
             forward_type: str = 'cross_attn'  # cross_attn, context_token
     ):
         super().__init__()
@@ -233,21 +258,18 @@ class Noise_EncDec(nn.Module):
         # the seq_size is the number of tokens in the input sequence
         self.seq_size = goal_seq_len + obs_seq_len + action_seq_len
 
-        # linear embedding for the state
+        # linear embedding for the state / goal / action
         self.tok_emb = nn.Linear(state_dim, embed_dim)
-
-        # linear embedding for the goal
         self.goal_emb = nn.Linear(goal_dim, embed_dim)
-
-        # linear embedding for the action
         self.action_emb = nn.Linear(action_dim, embed_dim)
 
-        self.diffusion_type = diffusion_type
-
-        if diffusion_type == "beso":
+        self.diffusion_type = diffusion_type.lower()
+        if self.diffusion_type == "beso":
             self.sigma_emb = BESO_TimeEmbedding(embed_dim)
-        elif diffusion_type == "rf":
+        elif self.diffusion_type == "rf":
             self.sigma_emb = RF_TimeEmbedding(embed_dim)
+        elif self.diffusion_type in ("ddpm", "ddim"):
+            self.sigma_emb = SinusoidalTimeEmbedding(embed_dim)
         else:
             raise ValueError(f"Diffusion type {diffusion_type} is not supported")
 
@@ -265,13 +287,12 @@ class Noise_EncDec(nn.Module):
         self.action_seq_len = action_seq_len
 
         self.use_ada_conditioning = use_ada_conditioning
-
         self.forward_type = forward_type
 
         if self.forward_type != 'cross_attn':
             self.context_embed = nn.Embedding(1, embed_dim)
 
-        # action pred module
+        # action pred head
         if linear_output:
             self.action_pred = nn.Linear(embed_dim, action_dim)
         else:
@@ -433,4 +454,3 @@ class Noise_EncDec(nn.Module):
             return self.context_token_forward(states, actions, goals, sigma)
         else:
             raise ValueError(f"Invalid forward type: {self.forward_type}")
-

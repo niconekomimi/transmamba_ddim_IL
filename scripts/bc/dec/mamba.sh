@@ -1,0 +1,9 @@
+python run.py  --config-name=libero_config \
+            --multirun agents=bc_agent \
+            agent_name=bc_mamba \
+            group=bc_decoder_only \
+            agents/model=bc/bc_dec_mamba \
+            task_suite=libero_10 \
+            max_len_data=700 \
+            traj_per_task=10 \
+            seed=0

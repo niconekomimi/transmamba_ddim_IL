@@ -1,0 +1,1 @@
+/home/public/wyl/X_IL/logs/robocasa/sweeps/beso_transformer/2025-10-11/09-43-34/agent_name=beso_transformer,agents.if_film_condition=True,agents/model=beso/beso_dec_transformer,agents/obs_encoders=pretrained_resnet_film,agents=beso_agent,encoder_n_layer=6,group=beso_decoder_only_benchmark,seed=0/last_model.pth

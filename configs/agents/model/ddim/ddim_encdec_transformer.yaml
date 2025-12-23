@@ -1,0 +1,49 @@
+_target_: agents.models.ddim.ddim.Diffusion
+_recursive_: false
+
+state_dim: ${latent_dim}
+action_dim: ${action_dim}
+beta_schedule: cosine
+n_timesteps: ${num_sampling_steps}
+loss_type: l2
+predict_epsilon: true
+device: ${device}
+eta: 0.0  # 新增，DDIM 采样确定性
+
+inner_model:
+  _target_: agents.backbones.encoder_decoder.Noise_EncDec
+  _recursive_: false
+  state_dim: ${latent_dim}
+  action_dim: ${action_dim}
+  goal_dim: ${goal_dim}
+  goal_conditioned: ${goal_conditioned}
+  goal_seq_len: 1
+  obs_seq_len: ${obs_tokens}
+  action_seq_len: ${act_seq_len}
+  embed_pdrob: 0
+  embed_dim: ${n_embd}
+  device: ${device}
+  linear_output: true
+  use_ada_conditioning: ${agents.if_film_condition}
+  diffusion_type: ddim
+  forward_type: context_token
+
+  encoder:
+    _target_: agents.backbones.transformer.blocks.TransformerEncoder
+    embed_dim: ${n_embd}
+    n_heads: ${n_heads}
+    n_layers: ${encoder_n_layer}
+    attn_pdrop: 0.1
+    resid_pdrop: 0.1
+    mlp_pdrop: 0.1
+    bias: False
+
+  decoder:
+    _target_: agents.backbones.transformer.blocks.TransformerFiLMDecoder
+    embed_dim: ${n_embd}
+    n_heads: ${n_heads}
+    n_layers: ${decoder_n_layer}
+    attn_pdrop: 0.1
+    resid_pdrop: 0.1
+    mlp_pdrop: 0.1
+    bias: False

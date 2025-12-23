@@ -1,0 +1,11 @@
+python run.py  --config-name=libero_config \
+            --multirun agents=ddpm_agent \
+            agent_name=ddpm_transformer \
+            group=ddpm_decoder_only_benchmark \
+            agents/model=ddpm/ddpm_dec_transformer \
+            agents/obs_encoders=pretrained_resnet_film \
+            agents.if_film_condition=True \
+            task_suite=libero_object,libero_goal,libero_10,libero_spatial \
+            num_sampling_steps=8 \
+            max_len_data=520 \
+            seed=0,1,2

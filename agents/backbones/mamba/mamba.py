@@ -52,7 +52,8 @@ def create_block(
     if layer_idx not in attn_layer_idx:
         # Create a copy of the config to modify
         ssm_cfg = copy.deepcopy(ssm_cfg) if ssm_cfg is not None else {}
-        ssm_layer = ssm_cfg.pop("layer", "Mamba1")
+        # 修改默认值从 "Mamba1" 改为 "Mamba2"
+        ssm_layer = ssm_cfg.pop("layer", "Mamba2")
         if ssm_layer not in ["Mamba1", "Mamba2"]:
             raise ValueError(f"Invalid ssm_layer: {ssm_layer}, only support Mamba1 and Mamba2")
         mixer_cls = partial(

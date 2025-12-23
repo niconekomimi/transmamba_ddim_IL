@@ -1,4 +1,5 @@
 defaults:
+  - _self_
   - agents: bc_agent
   - trainers: base_trainer
 
@@ -7,7 +8,7 @@ log_dir: logs/${task_suite}/
 
 # insert wandb here
 wandb:
-  entity: tiger_or_cat
+  entity: 673269043-wuhan-university-of-science-and-technology
   project: fast_mail
 
 group: bc_${task_suite}
@@ -29,7 +30,7 @@ task_suite: libero_object
 traj_per_task: 10
 
 ## change the path of dataset
-dataset_path: /home/david/2024/datasets/${task_suite}
+dataset_path: /home/public/wyl/X_IL/LIBERO/libero/datasets/${task_suite}
 
 # Model Setting
 window_size: 10
@@ -82,9 +83,11 @@ shape_meta:
 ##########################################################################################
 # Common Parameters
 ##########################################################################################
-n_embd: 256
+# n_embd: 256
+n_embd: 512
 goal_dim: 512
-latent_dim: 256
+# latent_dim: 256
+latent_dim: 512
 
 ##########################################################################################
 # Transformer Parameters (encoder-decoder)
@@ -162,4 +165,4 @@ simulation:
   n_cores: 2
   num_episode: 20
   max_step_per_episode: 600
-  use_multiprocessing: false
+  use_multiprocessing: true

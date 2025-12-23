@@ -1,0 +1,11 @@
+python run.py  --config-name=libero_config \
+            --multirun agents=ddim_agent \
+            agent_name=ddim_transformer \
+            group=ddim_decoder_only_benchmark \
+            agents/model=ddim/ddim_dec_transformer \
+            agents/obs_encoders=pretrained_resnet_film \
+            agents.if_film_condition=True \
+            task_suite=libero_object,libero_goal,libero_10,libero_spatial \
+            traj_per_task=10,50 \
+            max_len_data=520 \
+            seed=0,1,2

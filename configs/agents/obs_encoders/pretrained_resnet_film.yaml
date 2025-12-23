@@ -8,8 +8,6 @@ rgb_model:
   condition_dim: ${goal_dim}
 
 resize_shape: null
-#    crop_shape: [ 84, 84 ]
-# constant center crop
 random_crop: False
 use_group_norm: True
 share_rgb_model: False

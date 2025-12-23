@@ -168,14 +168,17 @@ class Noise_Dec_only(nn.Module):
 
         self.diffusion_type = diffusion_type
 
+        self.diffusion_type = diffusion_type
+
         if diffusion_type == "beso":
             self.sigma_emb = BESO_TimeEmbedding(embed_dim)
         elif diffusion_type == "rf":
             self.sigma_emb = RF_TimeEmbedding(embed_dim)
-        elif diffusion_type == "ddpm":
+        elif diffusion_type in ["ddpm", "ddim"]:  # <- 支持 ddim
             self.sigma_emb = DDPM_TimeEmbedding(embed_dim)
         else:
             raise ValueError(f"Diffusion type {diffusion_type} is not supported")
+
 
         self.use_pos_emb = use_pos_emb
         if use_pos_emb:

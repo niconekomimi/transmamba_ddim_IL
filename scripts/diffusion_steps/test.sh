@@ -1,0 +1,15 @@
+CUDA_VISIBLE_DEVICES=1 \
+python run.py --config-name=libero_render \
+            agents=ddpm_agent \
+            agent_name=ddpm_encdec_transformer_mamba \
+            group=ddpm_encoder_decoder_benchmark \
+            agents/model=ddpm/ddpm_encdec_transformer_mamba \
+            agents/obs_encoders=pretrained_resnet_film \
+            agents.if_film_condition=True \
+            task_suite=libero_object \
+            max_len_data=700 \
+            traj_per_task=10 \
+            seed=0 \
+            simulation.render=true \
+            simulation.use_multiprocessing=false \
+            simulation.n_cores=1
