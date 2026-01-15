@@ -23,5 +23,5 @@ state_dim: ${obs_dim}
 latent_dim: ${latent_dim}
 
 # ---------------- DDIM 配置 ----------------
-ddim_steps: 100         # 采样步数（可调）
-eta: 0.0               # eta=0 → 确定性 DDIM；>0 → 随机性更强
+ddim_steps: 16         # 采样步数（可调）
+eta: 0.0               # eta=0 → 确定性 DDIM >0 → 随机性更强

@@ -45,3 +45,9 @@ inner_model:
     attn_pdrop: 0.1
     resid_pdrop: 0.1
     mlp_pdrop: 0.1
+    adaLN_zero: True
+
+  use_adapter: true
+  adapter_rank: 16
+  adapter_dropout: 0.0
+  adapter_activation: gelu

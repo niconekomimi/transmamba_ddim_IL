@@ -68,9 +68,6 @@ class DDPM_Agent(BaseAgent):
     def forward(self, obs_dict, actions=None):
         # make prediction
         perceptual_emb, latent_goal = self.compute_input_embeddings(obs_dict)
-        
-        # 添加投影层
-        # perceptual_emb = self.perceptual_projection(perceptual_emb)
 
         if self.training and actions is not None:
             loss = self.model(perceptual_emb, latent_goal, action=actions, if_train=True)

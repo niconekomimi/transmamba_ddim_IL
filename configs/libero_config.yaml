@@ -42,6 +42,8 @@ goal_conditioned: True
 
 use_pos_emb: True
 num_sampling_steps: 4
+ddim_steps: 4
+eta: 0.0
 if_use_ema: True
 
 # obs_tokens: obs_seq_len * len(obs_modalities)

@@ -8,7 +8,8 @@ n_timesteps: ${num_sampling_steps}
 loss_type: l2
 predict_epsilon: true
 device: ${device}
-eta: 0.0  # 新增，DDIM 采样确定性
+eta: ${eta}  # 新增，DDIM 采样确定性
+ddim_steps: ${ddim_steps}  # 新增，DDIM 采样步数
 
 inner_model:
   _target_: agents.backbones.encoder_decoder.Noise_EncDec
@@ -37,7 +38,7 @@ inner_model:
     resid_pdrop: 0.1
     mlp_pdrop: 0.1
     bias: False
-    use_cross_attention: True
+    use_cross_attention: false
 
   decoder:
     _target_: agents.backbones.mamba.blocks.MambaFiLMDecoder
@@ -47,3 +48,9 @@ inner_model:
     d_conv: 4
     expand: 2
     resid_pdrop: 0.1
+    adaLN_zero: True
+
+  use_adapter: true
+  adapter_rank: 16
+  adapter_dropout: 0.0
+  adapter_activation: gelu

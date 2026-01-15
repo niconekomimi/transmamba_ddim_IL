@@ -7,6 +7,7 @@ import hydra
 import multiprocessing as mp
 from tqdm import tqdm
 import wandb
+import imageio.v2 as imageio
 
 from .base_sim import BaseSim
 from libero.libero import benchmark
@@ -34,6 +35,11 @@ class MultiTaskSimOnscreen(BaseSim):
         render,
         n_cores,
         use_multiprocessing=True,
+        record_video: bool = False,
+        video_dir: str = "videos",
+        video_fps: int = 20,
+        video_max_frames: int = 600,
+        video_camera: str = "agentview_image",
     ):
         super().__init__(seed, device, render, n_cores)
 
@@ -53,8 +59,48 @@ class MultiTaskSimOnscreen(BaseSim):
 
         self.task_embs = {}
 
+        self.record_video = bool(record_video)
+        self.video_dir = video_dir
+        self.video_fps = int(video_fps)
+        self.video_max_frames = int(video_max_frames)
+        self.video_camera = str(video_camera)
+
+        if self.record_video:
+            os.makedirs(self.video_dir, exist_ok=True)
+
     def get_task_embs(self, task_embs):
         self.task_embs = task_embs
+
+    def _render_env(self, env):
+        """Try multiple render paths across robosuite/libero wrappers."""
+        if not self.render:
+            return
+        # 1) vanilla
+        try:
+            env.render()
+            return
+        except Exception:
+            pass
+        # 2) wrapper has inner env
+        for attr in ("env", "_env", "unwrapped"):
+            if hasattr(env, attr):
+                inner = getattr(env, attr)
+                try:
+                    inner.render()
+                    return
+                except Exception:
+                    pass
+        # 3) viewer render (common in robosuite)
+        for obj in (env, getattr(env, "env", None), getattr(env, "_env", None)):
+            if obj is None:
+                continue
+            viewer = getattr(obj, "viewer", None)
+            if viewer is not None:
+                try:
+                    viewer.render()
+                    return
+                except Exception:
+                    pass
 
     def _make_env(self, env_args: dict):
         if self.render:
@@ -64,7 +110,25 @@ class MultiTaskSimOnscreen(BaseSim):
             # 同时也要开 offscreen，否则拿不到 camera obs（agentview_image 等）
             env_args["has_offscreen_renderer"] = True
             env_args["use_camera_obs"] = True
-            return ControlEnv(**env_args)
+
+            env = ControlEnv(**env_args)
+
+            # 强制触发 viewer 创建/显示
+            try:
+                self._render_env(env)
+                time.sleep(0.05)
+            except Exception as e:
+                log.warning("Initial render() failed: %r", e)
+
+            # 打印一次：确认 viewer 是否存在
+            viewer = getattr(env, "viewer", None)
+            inner_viewer = getattr(getattr(env, "env", None), "viewer", None)
+            log.info(
+                "onscreen env created. viewer=%s inner_viewer=%s",
+                type(viewer).__name__ if viewer is not None else None,
+                type(inner_viewer).__name__ if inner_viewer is not None else None,
+            )
+            return env
 
         return OffScreenRenderEnv(**env_args)
 
@@ -110,6 +174,14 @@ class MultiTaskSimOnscreen(BaseSim):
 
             env = self._make_env(env_args)
 
+            writer = None
+            frame_count = 0
+            if self.record_video:
+                vid_name = f"{file_name}_ep{int(context_ind[i])}_seed{self.seed}.mp4"
+                vid_path = os.path.join(self.video_dir, vid_name)
+                writer = imageio.get_writer(vid_path, fps=self.video_fps, codec="libx264", quality=8)
+                log.info("Recording video to: %s", vid_path)
+
             try:
                 agent.reset()
                 env.seed(self.seed)
@@ -121,12 +193,14 @@ class MultiTaskSimOnscreen(BaseSim):
                 dummy[-1] = -1.0
                 for _ in range(5):
                     obs, _, _, _ = env.step(dummy)
+                    self._render_env(env)
                     if self.render:
-                        try:
-                            env.render()
-                            time.sleep(0.002)
-                        except Exception:
-                            pass
+                        time.sleep(0.01)
+
+                    if writer is not None and frame_count < self.video_max_frames:
+                        frame = obs[self.video_camera]
+                        writer.append_data(frame)
+                        frame_count += 1
 
                 for j in range(self.max_step_per_episode):
                     agentview_rgb = (
@@ -168,12 +242,14 @@ class MultiTaskSimOnscreen(BaseSim):
                     action = agent.predict(obs_dict).cpu().numpy()
                     obs, r, done, _ = env.step(action)
 
+                    self._render_env(env)
                     if self.render:
-                        try:
-                            env.render()
-                            time.sleep(0.002)
-                        except Exception:
-                            pass
+                        time.sleep(0.01)
+
+                    if writer is not None and frame_count < self.video_max_frames:
+                        frame = obs[self.video_camera]
+                        writer.append_data(frame)
+                        frame_count += 1
 
                     if r == 1:
                         success[int(context), int(context_ind[i])] = r
@@ -184,6 +260,11 @@ class MultiTaskSimOnscreen(BaseSim):
                     episode_lengths[int(context), int(context_ind[i])] = self.max_step_per_episode
 
             finally:
+                if writer is not None:
+                    try:
+                        writer.close()
+                    except Exception:
+                        pass
                 try:
                     env.close()
                 except Exception:

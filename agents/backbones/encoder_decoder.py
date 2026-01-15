@@ -13,6 +13,52 @@ from agents.utils.time_embedding import BESO_TimeEmbedding, RF_TimeEmbedding
 logger = logging.getLogger(__name__)
 
 
+class LowRankAdapter(nn.Module):
+    """
+    Bottleneck-style low-rank adapter:
+        y = x + W_up( act( W_down( LN(x) ) ) )
+    """
+    def __init__(
+        self,
+        d_model: int,
+        r: int = 16,
+        dropout: float = 0.0,
+        use_layernorm: bool = True,
+        activation: str = "gelu",
+    ):
+        super().__init__()
+        self.norm = nn.LayerNorm(d_model) if use_layernorm else nn.Identity()
+        self.down = nn.Linear(d_model, r, bias=False)
+        self.up = nn.Linear(r, d_model, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+        if activation == "gelu":
+            self.act = nn.GELU()
+        elif activation == "relu":
+            self.act = nn.ReLU()
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+        # 初始化为近似 identity（不破坏原模型）
+        nn.init.zeros_(self.up.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.up(self.dropout(self.act(self.down(self.norm(x)))))
+
+class SigmaAwareAdapter(nn.Module):
+    def __init__(self, d_model, r=16):
+        super().__init__()
+        self.norm = nn.LayerNorm(d_model)
+        self.down = nn.Linear(d_model, r)
+        self.up = nn.Linear(r, d_model)
+        self.sigma_proj = nn.Linear(d_model, r)
+        nn.init.zeros_(self.up.weight)
+
+    def forward(self, x, sigma_emb):
+        h = self.down(self.norm(x))
+        s = self.sigma_proj(sigma_emb).unsqueeze(1)
+        return x + self.up(h + s)
+
 # Non-diffusion based encoder-decoder model
 class EncDec(nn.Module):
     def __init__(
@@ -30,7 +76,12 @@ class EncDec(nn.Module):
             obs_seq_len: int,
             action_seq_len: int,
             linear_output: bool = False,
-            forward_type: str = 'cross_attn' # cross_attn, context_token
+            forward_type: str = 'cross_attn',  # cross_attn, context_token
+            # ---- optional low-rank adapter (disabled by default) ----
+            use_adapter: bool = False,
+            adapter_rank: int = 16,
+            adapter_dropout: float = 0.0,
+            adapter_activation: str = "gelu",
     ):
         super().__init__()
 
@@ -74,6 +125,17 @@ class EncDec(nn.Module):
         if self.forward_type != 'cross_attn':
             self.context_embed = nn.Embedding(1, embed_dim)
 
+        # ---- adapter: encoder_output -> (adapter) -> decoder ----
+        self.adapter: Optional[nn.Module] = None
+        if use_adapter:
+            self.adapter = LowRankAdapter(
+                d_model=embed_dim,
+                r=adapter_rank,
+                dropout=adapter_dropout,
+                activation=adapter_activation,
+                use_layernorm=True,
+            )
+
         # action pred module
         if linear_output:
             self.action_pred = nn.Linear(embed_dim, action_dim)
@@ -116,6 +178,9 @@ class EncDec(nn.Module):
 
         encoder_output = self.encoder(input_seq)
 
+        if self.adapter is not None:
+            encoder_output = self.adapter(encoder_output)
+
         return encoder_output
 
     # decode the action sequence with cross attention over the encoder output
@@ -139,6 +204,9 @@ class EncDec(nn.Module):
             input_seq = state_x
 
         encoder_output = self.encoder(input_seq)
+
+        if self.adapter is not None:
+            encoder_output = self.adapter(encoder_output)
 
         # decode the action sequence with cross attention over the encoder output
         action_seq = self.query_embed.weight.unsqueeze(0).repeat(b, 1, 1)
@@ -173,6 +241,9 @@ class EncDec(nn.Module):
 
         # only output the context token
         encoder_output = self.encoder(input_seq)[:, -1:, :]
+
+        if self.adapter is not None:
+            encoder_output = self.adapter(encoder_output)
 
         # decode the action sequence with cross attention over the encoder output
         action_seq = self.query_embed.weight.unsqueeze(0).repeat(b, 1, 1)
@@ -241,7 +312,12 @@ class Noise_EncDec(nn.Module):
             linear_output: bool = False,
             use_ada_conditioning: bool = False,
             diffusion_type: str = "beso",  # 支持: ddpm, ddim, beso, rf
-            forward_type: str = 'cross_attn'  # cross_attn, context_token
+            forward_type: str = 'cross_attn',  # cross_attn, context_token
+            # ---- optional low-rank adapter (disabled by default) ----
+            use_adapter: bool = False,
+            adapter_rank: int = 16,
+            adapter_dropout: float = 0.0,
+            adapter_activation: str = "gelu",
     ):
         super().__init__()
 
@@ -291,6 +367,17 @@ class Noise_EncDec(nn.Module):
 
         if self.forward_type != 'cross_attn':
             self.context_embed = nn.Embedding(1, embed_dim)
+
+        # ---- adapter: encoder_output -> (adapter) -> decoder ----
+        self.adapter: Optional[nn.Module] = None
+        if use_adapter:
+            self.adapter = LowRankAdapter(
+                d_model=embed_dim,
+                r=adapter_rank,
+                dropout=adapter_dropout,
+                activation=adapter_activation,
+                use_layernorm=True,
+            )
 
         # action pred head
         if linear_output:
@@ -343,6 +430,9 @@ class Noise_EncDec(nn.Module):
             input_seq = torch.cat([emb_t, input_seq], dim=1)
             encoder_output = self.encoder(input_seq)
 
+        if self.adapter is not None:
+            encoder_output = self.adapter(encoder_output)
+
         return encoder_output
 
     # decode the action sequence with cross attention over the encoder output
@@ -381,10 +471,14 @@ class Noise_EncDec(nn.Module):
         # adaLN conditioning
         if self.use_ada_conditioning:
             encoder_output = self.encoder(input_seq)
+            if self.adapter is not None:
+                encoder_output = self.adapter(encoder_output)
             decoder_output = self.decoder(action_x, emb_t, encoder_output)
         else:
             input_seq = torch.cat([emb_t, input_seq], dim=1)
             encoder_output = self.encoder(input_seq)
+            if self.adapter is not None:
+                encoder_output = self.adapter(encoder_output)
             decoder_output = self.decoder(action_x, encoder_output)
 
         pred_actions = self.action_pred(decoder_output[:, -self.action_seq_len:, :])
@@ -429,11 +523,15 @@ class Noise_EncDec(nn.Module):
         # adaLN conditioning
         if self.use_ada_conditioning:
             encoder_output = self.encoder(input_seq)[:, -1:, :]
+            if self.adapter is not None:
+                encoder_output = self.adapter(encoder_output)
             emb_t = emb_t + encoder_output
             decoder_output = self.decoder(action_x, emb_t)
         else:
             input_seq = torch.cat([emb_t, input_seq], dim=1)
             encoder_output = self.encoder(input_seq)[:, -1:, :]
+            if self.adapter is not None:
+                encoder_output = self.adapter(encoder_output)
             decoder_output = self.decoder(action_x, encoder_output)
 
         pred_actions = self.action_pred(decoder_output[:, -self.action_seq_len:, :])

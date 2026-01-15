@@ -14,7 +14,7 @@ wandb:
 group: bc_${task_suite}
 
 hydra:
-  mode: MULTIRUN  # needed for launcher to be used
+  mode: RUN
   run:
     dir: ${log_dir}/runs/${agent_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
   job:
@@ -163,7 +163,7 @@ simulation:
   device: ${device}
 
   # 开屏（弹窗）
-  render: True
+  render: False
 
   # 开屏强烈建议单进程
   use_multiprocessing: false
@@ -171,3 +171,9 @@ simulation:
 
   num_episode: 20
   max_step_per_episode: 600
+
+  record_video: true
+  video_dir: /home/wyl/X_IL/videos/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  video_fps: 20
+  video_max_frames: 600
+  video_camera: agentview_image

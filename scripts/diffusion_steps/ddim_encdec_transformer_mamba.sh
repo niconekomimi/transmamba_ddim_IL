@@ -1,11 +1,14 @@
 python run.py  --config-name=libero_config \
             --multirun agents=ddim_agent \
             agent_name=ddim_encdec_transformer_mamba \
-            group=ddim_encoder_decoder_benchmark \
+            group=ddim_steps_sweep_T100 \
             agents/model=ddim/ddim_encdec_transformer_mamba \
             agents/obs_encoders=pretrained_resnet_film \
             agents.if_film_condition=True \
             task_suite=libero_object \
+            num_sampling_steps=100 \
+            ddim_steps=1,2,4,8,16 \
+            eta=0.0 \
             max_len_data=700 \
             traj_per_task=10 \
-            seed=0,1,2
+            seed=0

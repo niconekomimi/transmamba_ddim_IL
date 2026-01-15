@@ -204,73 +204,91 @@ class MambaFiLMDecoder(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         resid_pdrop: float = 0.1,
+        adaLN_zero: bool = False,  # NEW: 默认关闭，不破坏原结构
+        fused_add_norm: bool = False,
+        residual_in_fp32: bool = False,
     ):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_layers = n_layers
+        self.adaLN_zero = adaLN_zero
 
+        # 保持你原来的 norm / dropout
         self.in_norm = nn.LayerNorm(embed_dim)
         self.out_norm = nn.LayerNorm(embed_dim)
         self.drop = nn.Dropout(resid_pdrop)
 
-        # 时间嵌入 -> FiLM 参数
+        # 时间嵌入 -> FiLM 参数（仍保留，便于兼容 if_film_condition）
         self.film = nn.Sequential(
             nn.SiLU(),
             nn.Linear(embed_dim, 2 * embed_dim)
         )
 
-        # 堆叠 Mamba 层
-        self.layers = nn.ModuleList([
-            Mamba(
-                d_model=embed_dim,
-                d_state=d_state,
-                d_conv=d_conv,
-                expand=expand
-            )
-            for _ in range(n_layers)
-        ])
+        mixer_cls = lambda dim: Mamba(d_model=dim, d_state=d_state, d_conv=d_conv, expand=expand)
+        mlp_cls = nn.Identity  # Decoder 这里先不额外加 MLP（最小改动）
+
+        if self.adaLN_zero:
+            # 使用带 AdaLN-Zero 的 Block
+            self.layers = nn.ModuleList([
+                ConditionedBlock(
+                    dim=embed_dim,
+                    mixer_cls=mixer_cls,
+                    mlp_cls=mlp_cls,
+                    norm_cls=nn.LayerNorm,
+                    fused_add_norm=fused_add_norm,
+                    residual_in_fp32=residual_in_fp32,
+                )
+                for _ in range(n_layers)
+            ])
+        else:
+            # 保持原实现：纯 Mamba 层堆叠
+            self.layers = nn.ModuleList([
+                Mamba(
+                    d_model=embed_dim,
+                    d_state=d_state,
+                    d_conv=d_conv,
+                    expand=expand
+                )
+                for _ in range(n_layers)
+            ])
 
     def _apply_film(self, x: torch.Tensor, temb: torch.Tensor | None):
-        # x: (B, L, D); temb: (B, 1, D)
         if temb is None:
             return x
-        gamma, beta = self.film(temb).chunk(2, dim=-1)  # (B, 1, D), (B, 1, D)
+        gamma, beta = self.film(temb).chunk(2, dim=-1)
         return x * (1 + gamma) + beta
 
     def forward(self, x: torch.Tensor, cond1: torch.Tensor | None = None, cond2: torch.Tensor | None = None):
-        """
-        兼容三种调用：
-        - forward(x, temb, memory)
-        - forward(x, temb)
-        - forward(x, memory)
-        其中 x=(B, Ta, D), temb=(B, 1, D), memory=(B, S, D or 1, D)
-        """
         temb, memory = None, None
         if cond2 is not None:
-            # 认为 (x, temb, memory)
             temb, memory = cond1, cond2
         else:
-            # 只有一个条件，判断是 temb 还是 memory（按维度启发式）
             if cond1 is not None:
                 if cond1.dim() == 3 and cond1.size(-1) == self.embed_dim:
-                    # cond1 可能是 (B, 1, D) 的 temb 或 (B, S, D) 的 memory，二者均为 3 维
-                    # 如果长度与 x 相同通常更像 memory，不过 context_token 下 memory 也可能是 1
-                    # 统一策略：
-                    # - 若长度为 1 且数值范围明显像时间步嵌入：作为 temb（但这里无法判别数值）
-                    # - 简化：优先当作 memory；如需仅传 temb，请在上游按 (x, temb) 严格调用
                     memory = cond1
                 else:
-                    # 回退：当作 temb
                     temb = cond1
 
-        # 将 memory 作为前缀拼接
         if memory is not None:
-            x = torch.cat([memory, x], dim=1)  # (B, S+Ta, D)
+            x = torch.cat([memory, x], dim=1)
 
+        # ---------- AdaLN-Zero 路径 ----------
+        if self.adaLN_zero:
+            if temb is None:
+                raise ValueError("adaLN_zero=True 需要传入 temb (B, 1, D) 作为 cond。")
+
+            # 这里使用 ConditionedBlock 的 residual 语义：第一个 block residual=None
+            hidden_states = x
+            residual = None
+            for blk in self.layers:
+                hidden_states, residual = blk(hidden_states, residual=residual, cond=temb)
+                hidden_states = self.drop(hidden_states)
+            return self.out_norm(hidden_states)
+
+        # ---------- 原 FiLM 路径（不变） ----------
         h = x
         for layer in self.layers:
-            y = layer(self.in_norm(h))        # Mamba 期望 (B, L, D)
-            y = self._apply_film(y, temb)     # 注入时间条件
-            h = h + self.drop(y)              # 残差
-
+            y = layer(self.in_norm(h))
+            y = self._apply_film(y, temb)
+            h = h + self.drop(y)
         return self.out_norm(h)
