@@ -5,7 +5,6 @@ import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from typing import Optional
@@ -115,4 +114,3 @@ class FM_Agent(BaseAgent):
         pred_act_seq = self.model.sample(noise_action, perceptual_emb, latent_goal, sample_steps=self.sampling_steps)
 
         return pred_act_seq
-

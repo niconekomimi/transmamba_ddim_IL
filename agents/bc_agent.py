@@ -5,7 +5,6 @@ import einops
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import wandb
 from omegaconf import DictConfig, OmegaConf
 import hydra
 from typing import Optional
@@ -118,4 +117,3 @@ class BC_Agent(BaseAgent):
             return loss
 
         return pred
-

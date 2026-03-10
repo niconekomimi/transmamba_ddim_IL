@@ -8,7 +8,6 @@ import einops
 import hydra
 import torch
 import torch.nn as nn
-import wandb
 from omegaconf import DictConfig
 
 from agents.utils.scaler import ActionScaler, MinMaxScaler, Scaler
@@ -289,7 +288,12 @@ class BaseAgent(nn.Module, abc.ABC):
 
         total_params = sum(p.numel() for p in self.parameters())
 
-        wandb.log({"model parameters": total_params})
+        try:
+            import wandb
+
+            wandb.log({"model parameters": total_params})
+        except Exception:
+            pass
 
         log.info("The model has a total amount of {} parameters".format(total_params))
 
