@@ -7,4 +7,3 @@ h5py
 ftfy
 regex
 tqdm
-mamba-ssm[causal-conv1d]

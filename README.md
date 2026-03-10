@@ -19,6 +19,9 @@
 ## 环境安装
 
 先创建 conda 环境，并按你的 CUDA 版本安装 `torch` 和 `torchvision`。
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
 
 然后安装基础推理依赖：
 
@@ -31,7 +34,6 @@ pip install -r requirements.txt
 ### 安装 mamba1/2
 
 ```bash
-# you might have some problems with the installation of mamba, we will try to provide some hints in the incoming documentation.
 pip install mamba-ssm[causal-conv1d] --no-build-isolation
 ```
 
