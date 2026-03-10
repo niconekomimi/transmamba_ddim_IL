@@ -1,12 +1,11 @@
 defaults:
+  - _self_
   - agents: bc_agent
   - trainers: base_trainer
-  - _self_
 
 agent_name: beso
 log_dir: logs/robocasa/
 
-# insert wandb here
 wandb:
   entity: 673269043-wuhan-university-of-science-and-technology
   project: fast_mail_robocasa
@@ -30,6 +29,9 @@ hydra:
   #   partition: accelerated
   #   gres: gpu:1
 
+seed: 42
+
+# dataset config
 env_name:
   - PnPCounterToCab   # 原 PnPCabToCounter
 #  - PnPStoveToCounter
@@ -37,63 +39,68 @@ env_name:
 #  - CloseSingleDoor
 #  - OpenDrawer
 #  - CoffeePressButton
-seed: 42
-
-dataset_path:  /home/public/wyl/X_IL/robocasa/datasets/v0.1/single_stage/
+dataset_path: /home/public/wyl/X_IL/robocasa/datasets/v0.1/single_stage/
 # dataset_path: /hkfs/work/workspace/scratch/ll6323-david_dataset_2/robocasa_datasets/v0.1/single_stage/kitchen_pnp/PnPCabToCounter/2024-04-24/processed_demo_${img_width}_${img_height}.hdf5
 
+##########################################################################################
 # Model Setting
-window_size: ${add:${obs_seq_len},${pred_seq_len},-1}
+##########################################################################################
 obs_seq_len: 1
-act_seq_len: 10
 pred_seq_len: 10
+window_size: ${add:${obs_seq_len},${pred_seq_len},-1}
+
+act_seq_len: 10
 multistep: ${window_size} # only for inference, could be different from act_seq_len
+
 goal_window_size: 1
-
 goal_conditioned: True
-use_pos_emb: true   # 新增，与 libero 配置保持一致
-num_sampling_steps: 4      # 新增：采样步数顶层
 
-# Training
-train_batch_size: 256
-val_batch_size: 64
-num_workers: 12
-device: "cuda"
-epoch: 1
-eval_every_n_epochs: 1
-scale_data: True
-scaler_type: "standard"
+use_pos_emb: True
+num_sampling_steps: 4
+ddim_steps: 4
+eta: 0.0
 
 if_use_ema: True
 
-## Environment
+##########################################################################################
+# Training
+##########################################################################################
+train_batch_size: 256
+val_batch_size: 64
+num_workers: 12
+device: 'cuda'
+epoch: 1
+eval_every_n_epochs: 1
+scale_data: True
+scaler_type: 'standard'
+
+##########################################################################################
+# Environment
+##########################################################################################
 obs_dim: 13
 action_dim: 7
+state_dim: 0  # robocasa dataset currently doesn't use state_dim; kept for config parity
 max_len_data: 260
 global_action: False
 
-obs_tokens: 3 #${obs_seq_len}
+# obs_tokens: obs_seq_len * len(obs_modalities)
+obs_tokens: 3
 
-## Observations
+##########################################################################################
+# Observations
+##########################################################################################
 if_robot_states: False
 img_width: 128
 img_height: 128
 
 camera_names:
-#  - "robot0_agentview_center"
-  - "robot0_agentview_left"
-  - "robot0_agentview_right"
-  - "robot0_eye_in_hand"
+  # - robot0_agentview_center
+  - robot0_agentview_left
+  - robot0_agentview_right
+  - robot0_eye_in_hand
 
 shape_meta:
-  # acceptable types: rgb, low_dim
   obs:
-#    robot0_agentview_center_image:
-#      shape:
-#        - 3
-#        - ${img_height}
-#        - ${img_width}
-#      type: rgb
     robot0_agentview_left_image:
       shape:
         - 3
@@ -117,13 +124,10 @@ shape_meta:
 ##########################################################################################
 n_embd: 256
 goal_dim: 512
-# latent_dim: 384
 latent_dim: 512
 
-# Add missing generic keys (align partly with libero)
-state_dim: 0          # 如果 robocasa 没有独立 state，可设 0 或与 obs_dim 相同；若后续代码用 >0 逻辑需改 dataset
-traj_per_task: 0      # 如果单场景无多任务，可保留 0；否则设置实际轨迹数
-val_start_idx: 0      # 自定义验证起始索引，后续 valset 可引用
+traj_per_task: 0
+val_start_idx: 0
 
 ##########################################################################################
 # Transformer Parameters (encoder-decoder)
@@ -155,20 +159,22 @@ mamba_decoder_cfg:
 # xLSTM Parameters
 ##########################################################################################
 xlstm_encoder_blocks: 16
-xlstm_decoder_blocks: 16
-
-# xLSTM optional params (只在用 xLSTM 时才需；否则保留默认不被引用)
 xlstm_encoder_vocab_size: 0
 xlstm_encoder_chunkwise_kernel: "parallel--native_autograd"
 xlstm_encoder_mode: "train"
 xlstm_encoder_adaLN_zero: False
 xlstm_encoder_in_context_cond: False
 
+xlstm_decoder_blocks: 16
 xlstm_decoder_vocab_size: 0
 xlstm_decoder_chunkwise_kernel: "parallel--native_autograd"
 xlstm_decoder_mode: "train"
 xlstm_decoder_adaLN_zero: False
 xlstm_decoder_in_context_cond: False
+
+##########################################################################################
+# Dataset
+##########################################################################################
 
 trainset:
   _target_: environments.dataset.robocasa_dataset_memory.RobocasaDataset
@@ -181,7 +187,6 @@ trainset:
   max_len_data: ${max_len_data}
   window_size: ${window_size}
   global_action: ${global_action}
-  # 可选：traj_per_task: ${traj_per_task}
 
 valset:
   _target_: environments.dataset.robocasa_dataset_memory.RobocasaDataset
@@ -194,7 +199,11 @@ valset:
   max_len_data: ${max_len_data}
   window_size: ${window_size}
   global_action: ${global_action}
-  # 可选：start_idx: ${val_start_idx}
+  # start_idx: ${val_start_idx}
+
+##########################################################################################
+# Simulation
+##########################################################################################
 
 simulation:
   _target_: simulation.robocasa_sim.RoboCasaSim

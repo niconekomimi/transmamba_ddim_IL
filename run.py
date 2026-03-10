@@ -52,12 +52,31 @@ def main(cfg: DictConfig) -> None:
     # load vqvae before training the agent: add path to the config file
     # train the agent
     agent = hydra.utils.instantiate(cfg.agents)
+
+    # Record runtime-effective replanning interval (may come from python default)
+    try:
+        wandb.config.update({"runtime/replan_every": int(getattr(agent, "replan_every"))}, allow_val_change=True)
+        wandb.log({"runtime/replan_every": int(getattr(agent, "replan_every"))})
+    except Exception as e:
+        log.warning("Failed to record replan_every to wandb: %s", e)
+
+    if "trainers" not in cfg or cfg.trainers is None:
+        raise ValueError(
+            "Config must define 'trainers' to run training. "
+            "Use --config-name=libero_config.yaml or robocasa_config.yaml, or add a trainers section."
+        )
+
     trainer = hydra.utils.instantiate(cfg.trainers)
 
     agent.get_params()
     trainer.main(agent)
 
-    # # simulate the model
+    if "simulation" not in cfg or cfg.simulation is None:
+        raise ValueError(
+            "Config must define 'simulation' to run evaluation rollouts. "
+            "Use --config-name=libero_config.yaml or robocasa_config.yaml, or add a simulation section."
+        )
+
     env_sim = hydra.utils.instantiate(cfg.simulation)
 
     tasks = getattr(trainer.trainset, "tasks", None)

@@ -29,7 +29,9 @@ class BaseAgent(nn.Module, abc.ABC):
         latent_dim: int,
         obs_seq_len: int,
         act_seq_len: int,
-        cam_names: list[str]
+        cam_names: list[str],
+        replan_every: int | None = None,
+        verify_eye_in_hand: bool = False,
     ):
         super().__init__()
 
@@ -45,10 +47,37 @@ class BaseAgent(nn.Module, abc.ABC):
 
         self.cam_names = cam_names
 
+        # default flags (children typically override)
+        self.if_robot_states = False
+        self.if_film_condition = False
+
+        # Optional runtime checks
+        self.verify_eye_in_hand = bool(verify_eye_in_hand)
+        self._logged_verify_eye_in_hand = False
+
         # for inference
         self.rollout_step_counter = 0
         self.act_seq_len = act_seq_len
         self.obs_seq_len = obs_seq_len
+
+        # Closed-loop control: replan every N env steps (default keeps old behavior)
+        if replan_every is None:
+            self.replan_every = int(act_seq_len)
+        else:
+            self.replan_every = int(replan_every)
+        if self.replan_every <= 0:
+            raise ValueError(f"replan_every must be >= 1, got {self.replan_every}")
+
+        # We only cache act_seq_len actions; force replanning no later than that.
+        if self.replan_every > self.act_seq_len:
+            log.warning(
+                "replan_every (%d) > act_seq_len (%d); clamping replan_every to act_seq_len.",
+                self.replan_every,
+                self.act_seq_len,
+            )
+            self.replan_every = self.act_seq_len
+
+        self._steps_since_plan = 0
 
         self.obs_seq: dict[str, deque[torch.Tensor]] = {}
 
@@ -100,6 +129,30 @@ class BaseAgent(nn.Module, abc.ABC):
 
         elif self.cam_names is not None:
 
+            if self.verify_eye_in_hand and not self._logged_verify_eye_in_hand:
+                # Validate that eye_in_hand is both present in inputs and expected by the encoder.
+                expected_key = "eye_in_hand_image"
+                if "eye_in_hand" in self.cam_names:
+                    if expected_key not in obs_dict:
+                        raise KeyError(
+                            f"verify_eye_in_hand=True but `{expected_key}` is missing from obs_dict keys: {list(obs_dict.keys())}"
+                        )
+                    if hasattr(self.img_encoder, "rgb_keys") and expected_key not in getattr(self.img_encoder, "rgb_keys"):
+                        log.warning(
+                            "verify_eye_in_hand=True: `%s` present in obs_dict, but not listed in img_encoder.rgb_keys=%s. "
+                            "This may indicate the encoder config (shape_meta) is not using eye-in-hand.",
+                            expected_key,
+                            getattr(self.img_encoder, "rgb_keys"),
+                        )
+                    else:
+                        log.info(
+                            "verify_eye_in_hand=True: using `%s` with shape=%s and encoder=%s",
+                            expected_key,
+                            tuple(obs_dict[expected_key].shape),
+                            type(self.img_encoder).__name__,
+                        )
+                self._logged_verify_eye_in_hand = True
+
             B, T, C, H, W = obs_dict[f"{self.cam_names[0]}_image"].shape
             # B, T, C, H, W = obs_dict["robot0_agentview_center_image"].shape
 
@@ -142,6 +195,7 @@ class BaseAgent(nn.Module, abc.ABC):
     def reset(self):
         """Resets the context of the model."""
         self.rollout_step_counter = 0
+        self._steps_since_plan = 0
         self.obs_seq: dict[str, deque[torch.Tensor]] = {}
 
     @torch.no_grad()
@@ -167,19 +221,24 @@ class BaseAgent(nn.Module, abc.ABC):
                 )
                 obs_dict[key] = torch.cat([pad, obs_dict[key]], dim=1)
                 
-        if self.rollout_step_counter == 0:
+        # Receding-horizon control: replan every `replan_every` env steps.
+        if self._steps_since_plan == 0:
             self.eval()
-
-            # predict action sequence
-            pred_action_seq = self(obs_dict)[:, :self.act_seq_len]
+            pred_action_seq = self(obs_dict)[:, : self.act_seq_len]
             pred_action_seq = self.scaler.inverse_scale_output(pred_action_seq)
             self.pred_action_seq = pred_action_seq
 
-        current_action = self.pred_action_seq[0, self.rollout_step_counter]
+        # Execute the cached plan.
+        plan_len = self.pred_action_seq.shape[1]
+        plan_idx = min(self._steps_since_plan, plan_len - 1)
+        current_action = self.pred_action_seq[0, plan_idx]
 
-        self.rollout_step_counter += 1
-        if self.rollout_step_counter == self.act_seq_len:
-            self.rollout_step_counter = 0
+        self._steps_since_plan += 1
+        if self._steps_since_plan >= self.replan_every:
+            self._steps_since_plan = 0
+
+        # Keep rollout_step_counter for backward-compat / logging (0..act_seq_len-1)
+        self.rollout_step_counter = (self.rollout_step_counter + 1) % self.act_seq_len
 
         return current_action
 

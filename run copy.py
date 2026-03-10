@@ -52,6 +52,14 @@ def main(cfg: DictConfig) -> None:
     # load vqvae before training the agent: add path to the config file
     # train the agent
     agent = hydra.utils.instantiate(cfg.agents)
+
+    # Record runtime-effective replanning interval (may come from python default)
+    try:
+        wandb.config.update({"runtime/replan_every": int(getattr(agent, "replan_every"))}, allow_val_change=True)
+        wandb.log({"runtime/replan_every": int(getattr(agent, "replan_every"))})
+    except Exception as e:
+        log.warning("Failed to record replan_every to wandb: %s", e)
+
     trainer = hydra.utils.instantiate(cfg.trainers)
 
     agent.get_params()

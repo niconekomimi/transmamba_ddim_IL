@@ -14,6 +14,9 @@ optimization:
 obs_seq_len: ${obs_seq_len}
 act_seq_len: ${act_seq_len}
 
+# 推理期闭环重规划频率；默认等于 act_seq_len（保持旧版 chunk 开环执行）
+replan_every: ${act_seq_len}
+
 cam_names: ${camera_names}
 
 if_robot_states: False

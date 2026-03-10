@@ -1,3 +1,4 @@
+HYDRA_FULL_ERROR=1
 python run.py  --config-name=robocasa_config \
             --multirun agents=beso_agent \
             agent_name=beso_mamba \

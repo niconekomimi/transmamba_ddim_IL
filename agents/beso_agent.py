@@ -34,6 +34,8 @@ class BesoAgent(BaseAgent):
             obs_seq_len: int,
             act_seq_len: int,
             cam_names: list[str],
+        replan_every: int | None = None,
+        verify_eye_in_hand: bool = False,
             state_dim = 7,
             use_lr_scheduler: bool = True,
             sampler_type: str = 'ddim',
@@ -58,7 +60,9 @@ class BesoAgent(BaseAgent):
             latent_dim=latent_dim,
             obs_seq_len=obs_seq_len,
             act_seq_len=act_seq_len,
-            cam_names=cam_names
+            cam_names=cam_names,
+            replan_every=replan_every,
+            verify_eye_in_hand=verify_eye_in_hand,
         )
 
         self.action_dim = action_dim
