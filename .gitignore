@@ -12,3 +12,7 @@ logs/*
 slurm_jobs/output/
 
 utils/figures/*
+
+# real-robot artifacts and datasets
+real_robot/outputs/
+real_robot/data/
