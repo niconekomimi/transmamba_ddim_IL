@@ -1,46 +1,44 @@
-# Real_IL 纯推理版
+# 真机推理说明
 
-这个工作区已经精简为“真机控制推理”用途，只保留加载训练权重并输出动作所需的代码。
+这里仅用于加载训练好的 checkpoint 并输出动作。
 
-## 当前保留内容
+## 必需的 checkpoint 文件
 
-- `agents/`：策略 agent、backbone、encoder、model 实现
-- `real_robot/infer.py`：加载 checkpoint 并执行一步推理
-- `real_robot/README.md`：真机推理使用说明
-- `task_embeddings/`：可选的任务 embedding 文件
+- `last_model.pth`
+- `model_scaler.pkl`
+- `.hydra/config.yaml`
 
-## 已删除内容
+## 环境安装要求
 
-- 仿真环境与 rollout 评测代码
-- 训练入口、trainer、批处理脚本
-- wandb 缓存、论文文件、实验残留文件
-- 重复的 `copy` 文件和外部环境占位目录
-
-## 环境安装
-
-先创建 conda 环境，并按你的 CUDA 版本安装 `torch` 和 `torchvision`。
-```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
-
-然后安装基础推理依赖：
+先安装基础依赖：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-下面两段按照上游 `ALRhub/X_IL` README 的安装写法保留。
-
 ### 安装 mamba1/2
 
 ```bash
-pip install mamba-ssm[causal-conv1d] --no-build-isolation
+pip install \
+  https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.6.1.post4/causal_conv1d-1.6.1+cu11torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
+pip install \
+  https://github.com/state-spaces/mamba/releases/download/v2.3.1/mamba_ssm-2.3.1+cu11torch2.7cxx11abiTRUE-cp310-cp310-linux_x86_64.whl
+
+pip install "setuptools==79.0.1"
 ```
 
-说明：
+- 不要直接执行 `pip install mamba-ssm[causal-conv1d]`。如果没有命中预编译 wheel，它会退回源码构建，并在缺少 `nvcc` 时触发上游 `setup.py` 报错。
+- 这组 wheel 已在本机验证通过，适用环境是 `Python 3.10`、`torch 2.7.1+cu118`、`cxx11abi=TRUE`、`linux_x86_64`。
+- 如果环境版本不同，请去以下 release 页换成匹配标签的 wheel：
+  - `https://github.com/Dao-AILab/causal-conv1d/releases`
+  - `https://github.com/state-spaces/mamba/releases`
 
-- 当前工作区里的 Mamba backbone 直接依赖 `mamba_ssm`。
-- 为了保证 Mamba 权重能直接加载，这一步按上游 README 保留。
+安装后自检：
+
+```bash
+python -c "import torch, mamba_ssm, causal_conv1d; from mamba_ssm.modules.mamba2 import Mamba2; print(torch.__version__, torch.cuda.is_available(), mamba_ssm.__version__, getattr(causal_conv1d, '__version__', 'unknown'), Mamba2)"
+```
 
 ### 安装 xlstm
 
@@ -50,19 +48,11 @@ cd xlstm
 pip install -e . --ignore-requires-python
 ```
 
-说明：
+- `pip install timm`
+- `pip install transformers`
+- `pip install torchsde torchdiffeq`
 
-- 当前工作区已经保留了 `agents/backbones/xlstm/` 代码。
-- 按你的要求，README 仍然按照上游 README 保留 `xlstm` 的安装步骤，统一覆盖 xLSTM 权重运行环境。
-- xLSTM 一般还要求 CUDA PyTorch / Triton 环境可用。
-
-### 其他按权重类型安装
-
-- `pip install timm`：如果 checkpoint 使用 `pretrained_resnet` 编码器
-- `pip install transformers`：如果 checkpoint 使用 `siglip` 编码器
-- `pip install torchsde torchdiffeq`：如果 checkpoint 是 BESO
-
-## 推理运行
+## 命令行推理
 
 ```bash
 python real_robot/infer.py \
@@ -70,7 +60,16 @@ python real_robot/infer.py \
   --task-description "pick up the object and place it in the basket"
 ```
 
-如果要做单帧离线 smoke test：
+如果你已经有预计算好的任务 embedding：
+
+```bash
+python real_robot/infer.py \
+  --ckpt-dir /path/to/checkpoint_dir \
+  --task-name pick_up_the_object_and_place_it_in_the_basket \
+  --task-embedding-path /path/to/task_embeddings.pkl
+```
+
+## 离线单步测试
 
 ```bash
 python real_robot/infer.py \
@@ -79,4 +78,21 @@ python real_robot/infer.py \
   --demo-hdf5 /path/to/demo.hdf5 \
   --demo-key demo_0 \
   --step 0
+```
+
+## Python 调用方式
+
+```python
+from real_robot.infer import RealRobotPolicy
+
+policy = RealRobotPolicy(
+    checkpoint_dir="/path/to/checkpoint_dir",
+    task_description="pick up the object and place it in the basket",
+)
+
+action = policy.predict_action(
+    agentview_image=agentview_rgb,
+    eye_in_hand_image=eye_in_hand_rgb,
+    robot_states=robot_state,
+)
 ```

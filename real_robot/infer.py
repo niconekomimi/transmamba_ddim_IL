@@ -1,8 +1,10 @@
 import argparse
+import io
 import logging
 import os
 import pickle
 import sys
+import types
 from pathlib import Path
 
 import h5py
@@ -18,6 +20,79 @@ if str(REPO_ROOT) not in sys.path:
 
 
 log = logging.getLogger(__name__)
+
+
+def _force_noninteractive_matplotlib() -> None:
+    os.environ.setdefault("MPLBACKEND", "Agg")
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+    except Exception:
+        pass
+
+
+def _patch_inference_compat(checkpoint_dir: str) -> None:
+    if "wandb" not in sys.modules:
+        sys.modules["wandb"] = types.SimpleNamespace(log=lambda *args, **kwargs: None)
+
+    from agents import base_agent
+    from agents.encoders import clip_lang_encoder
+
+    state_dict = torch.load(os.path.join(checkpoint_dir, "last_model.pth"), map_location="cpu", weights_only=False)
+    clip_prefix = "language_encoder.clip_rn50."
+    clip_state = {
+        key[len(clip_prefix):]: value
+        for key, value in state_dict.items()
+        if key.startswith(clip_prefix)
+    }
+
+    def _load_clip_from_checkpoint(self, model_name: str) -> None:
+        if clip_state:
+            self.clip_rn50 = clip_lang_encoder.build_model(dict(clip_state)).to(self.device)
+            return
+        model, _ = clip_lang_encoder.load_clip(model_name, device=self.device)
+        self.clip_rn50 = clip_lang_encoder.build_model(model.state_dict()).to(self.device)
+
+    def _load_pretrained_model(self, weights_path: str, sv_name=None) -> None:
+        path = os.path.join(
+            weights_path,
+            "model_state_dict.pth" if sv_name is None else f"{sv_name}.pth",
+        )
+        self.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+        log.info("Loaded pre-trained model")
+
+    class _DeviceAwareUnpickler(pickle.Unpickler):
+        def __init__(self, file_obj, map_location):
+            super().__init__(file_obj)
+            self.map_location = map_location
+
+        def find_class(self, module, name):
+            if module == "torch.storage" and name == "_load_from_bytes":
+                return lambda payload: torch.load(
+                    io.BytesIO(payload),
+                    map_location=self.map_location,
+                    weights_only=False,
+                )
+            return super().find_class(module, name)
+
+    def _load_model_scaler(self, weights_path: str, sv_name=None) -> None:
+        if sv_name is None:
+            sv_name = "model_scaler.pkl"
+
+        with open(os.path.join(weights_path, sv_name), "rb") as f:
+            self.scaler = _DeviceAwareUnpickler(f, self.device).load()
+
+        if hasattr(self.scaler, "device"):
+            self.scaler.device = self.device
+        for attr_name, attr_value in vars(self.scaler).items():
+            if torch.is_tensor(attr_value):
+                setattr(self.scaler, attr_name, attr_value.to(self.device))
+        log.info("Loaded model scaler")
+
+    clip_lang_encoder.LangClip._load_clip = _load_clip_from_checkpoint
+    base_agent.BaseAgent.load_pretrained_model = _load_pretrained_model
+    base_agent.BaseAgent.load_model_scaler = _load_model_scaler
 
 
 class RealRobotPolicy:
@@ -42,6 +117,8 @@ class RealRobotPolicy:
         self.cfg.agents.device = chosen_device
 
         self.device = torch.device(chosen_device)
+        _force_noninteractive_matplotlib()
+        _patch_inference_compat(checkpoint_dir)
         self.agent = hydra.utils.instantiate(self.cfg.agents)
         self.agent.to(self.device)
         self.agent.eval()
